@@ -5,7 +5,7 @@
     <meta charset="UTF-8">
     <title>Certificate of Achievement</title>
 
-    <link href="file:///app/static/fonts/poppins.css" rel="stylesheet">
+    {% if font_css_url %}<link href="{{ font_css_url }}" rel="stylesheet">{% endif %}
 
     <style>
         @page {
@@ -305,7 +305,7 @@
 
 
         <div class="details">
-            Has Successfully Completed Her <strong id="course">{{ course }}</strong> Course<br>
+            Has Successfully Completed there <strong id="course">{{ course }}</strong> Course<br>
             With LevelUp Online Education In The Month Of <strong id="date">{{ month }}</strong>
         </div>
 

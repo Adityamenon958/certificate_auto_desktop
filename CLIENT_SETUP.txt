@@ -1,0 +1,29 @@
+Certificate Auto - Client setup
+==============================
+
+1. Install wkhtmltopdf (required for PDF generation)
+   - Download: https://wkhtmltopdf.org/downloads.html
+   - Use default path: C:\Program Files\wkhtmltopdf\
+
+2. Create a .env file in THIS folder (same folder as CertificateAuto.exe)
+   with your email settings. Example:
+
+   SMTP_SERVER=smtp.gmail.com
+   SMTP_PORT=587
+   SMTP_USER=your.email@gmail.com
+   SMTP_PASSWORD=your-app-password
+   SENDER_EMAIL=your.email@gmail.com
+
+   For Gmail: use an App Password (Google Account → Security → App passwords).
+
+3. Run CertificateAuto.exe
+   - A single window will open (no black console).
+   - Use the Entries tab to add or load a list; History tab to view and export.
+   - Add entries (Name, Course, Month, Email) or load a list from JSON/CSV/Excel.
+   - Click "Generate & Send" to create and email certificates.
+   - Use the History tab to view, filter, search, and export sent certificates.
+
+4. Certificates are saved in the "certificates" folder next to the exe
+   (unless you set OUTPUT_DIR in .env).
+
+Keep this folder intact: do not delete the .dll files, templates, or static folder.

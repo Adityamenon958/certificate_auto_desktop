@@ -1,7 +1,4 @@
-flask
-gspread
-oauth2client
 pdfkit
-apscheduler
 python-dotenv
-gunicorn
+jinja2
+openpyxl

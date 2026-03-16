@@ -1,0 +1,3 @@
+# Install with: pip install -r requirements-build.txt
+# Used only for building the desktop .exe with PyInstaller.
+pyinstaller>=6.0.0

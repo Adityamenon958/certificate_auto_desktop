@@ -1,10 +1,11 @@
 """
 Certificate Auto - Desktop app with UI.
-Add entries (Name, Course, Month, Date of Completion, Scheduled Time, Email),
-then Generate & Send certificates. Save/Load list to JSON. No Google Sheet.
+Add entries (Name, Course, Month, Email), optionally via Paste rows (TSV/CSV from Sheets),
+then Generate & Send certificates. Save/Load list to JSON / CSV / Excel. No Google Sheet.
 """
 import base64
 import csv
+import io
 import json
 import os
 import sys
@@ -91,6 +92,7 @@ def save_history(records):
 _HEADER_TO_KEY = {
     "name": "name",
     "email": "email",
+    "e mail": "email",
     "course": "course",
     "month": "month",
     "date of completion": "date_of_completion",
@@ -105,7 +107,7 @@ def _normalize_header(h):
     if not h:
         return ""
     s = str(h).strip().lower()
-    s = s.replace("_", " ")
+    s = s.replace("_", " ").replace("-", " ")
     return " ".join(s.split())
 
 
@@ -218,6 +220,103 @@ def load_entries_from_file(path):
         wb.close()
         return rows
     raise ValueError(f"Unsupported file type: {ext}. Use .json, .csv, or .xlsx (Excel).")
+
+
+def parse_bulk_paste(text, first_row_is_header=False):
+    """
+    Parse pasted text from Google Sheets / Excel / Notepad.
+    - If any line contains a tab, lines are split on tabs (TSV).
+    - Otherwise each line is parsed as CSV (handles commas inside quoted fields).
+    - Without header: columns must be Name, Course, Month, Email (in that order).
+    - With header: first row is column titles; uses same names as CSV import (Name, Email, etc.).
+
+    Returns (entries, warnings) where entries is a list of dicts with keys
+    name, course, month, email; warnings is a list of human-readable strings.
+    """
+    text = (text or "").strip()
+    if not text:
+        return [], ["Nothing to paste."]
+
+    lines = [ln for ln in text.splitlines() if ln.strip()]
+    if not lines:
+        return [], ["No non-empty lines."]
+
+    use_tab = any("\t" in ln for ln in lines)
+
+    def split_line(ln):
+        if use_tab:
+            return [c.strip() for c in ln.split("\t")]
+        try:
+            return next(csv.reader(io.StringIO(ln)))
+        except Exception:
+            return [ln.strip()]
+
+    col_to_key = {}
+    start_idx = 0
+    if first_row_is_header:
+        header_cells = split_line(lines[0])
+        for i, cell in enumerate(header_cells):
+            norm = _normalize_header(cell)
+            key = _HEADER_TO_KEY.get(norm)
+            if key in (
+                "name",
+                "course",
+                "month",
+                "date_of_completion",
+                "scheduled_time",
+                "email",
+            ):
+                col_to_key[i] = key
+        mapped = set(col_to_key.values())
+        if "name" not in mapped or "email" not in mapped:
+            first_row_is_header = False
+            col_to_key = {}
+            start_idx = 0
+        else:
+            start_idx = 1
+
+    entries_out = []
+    warnings = []
+
+    for row_idx, ln in enumerate(lines[start_idx:], start=1):
+        cells = split_line(ln)
+        if col_to_key:
+            d = {k: "" for k in ("name", "course", "month", "email")}
+            for i, key in col_to_key.items():
+                if i < len(cells) and cells[i] is not None:
+                    val = str(cells[i]).strip()
+                    if key in d:
+                        d[key] = val
+            name = d["name"]
+            course = d["course"]
+            month = d["month"]
+            email = d["email"]
+        else:
+            padded = list(cells) + [""] * max(0, 4 - len(cells))
+            if len(padded) > 4:
+                padded = padded[:4]
+            name, course, month, email = (
+                padded[0].strip() if padded[0] else "",
+                padded[1].strip() if len(padded) > 1 and padded[1] else "",
+                padded[2].strip() if len(padded) > 2 and padded[2] else "",
+                padded[3].strip() if len(padded) > 3 and padded[3] else "",
+            )
+
+        if not name and not email:
+            continue
+        if not name or not email:
+            warnings.append(f"Row {row_idx}: skipped — Name and Email are required.")
+            continue
+        if not course or not month:
+            warnings.append(
+                f"Row {row_idx}: skipped — Course and Month are required ({name!r})."
+            )
+            continue
+        entries_out.append(
+            {"name": name, "course": course, "month": month, "email": email}
+        )
+
+    return entries_out, warnings
 
 
 def _image_path(filename):
@@ -514,7 +613,10 @@ def run_gui():
     ttk.Entry(form, textvariable=month_var, width=14).grid(row=0, column=5, padx=(0, 12))
     ttk.Label(form, text="Email *").grid(row=1, column=0, sticky=tk.W, padx=(0, 4))
     ttk.Entry(form, textvariable=email_var, width=40).grid(row=1, column=1, columnspan=3, padx=(0, 12), sticky=tk.EW)
-    ttk.Button(form, text="Add to list", command=add_entry).grid(row=1, column=4, columnspan=2, pady=(0, 0))
+    ttk.Button(form, text="Add to list", command=add_entry).grid(row=1, column=4, padx=(0, 6))
+    # ❗ open_paste_rows_dialog is defined after `tree` exists (see below)
+    paste_btn = ttk.Button(form, text="Paste rows…")
+    paste_btn.grid(row=1, column=5, pady=(0, 0))
 
     # List frame
     list_frame = ttk.LabelFrame(tab_entries, text="Entries to send", padding=8)
@@ -531,6 +633,102 @@ def run_gui():
     scroll = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=tree.yview)
     scroll.pack(side=tk.RIGHT, fill=tk.Y)
     tree.configure(yscrollcommand=scroll.set)
+
+    def open_paste_rows_dialog():
+        # ✅ Bulk-add: paste TSV/CSV from Sheets, Excel, or Notepad
+        win = tk.Toplevel(root)
+        win.title("Paste rows")
+        win.minsize(520, 420)
+        win.geometry("640x480")
+
+        header_var = tk.BooleanVar(value=False)
+
+        help_txt = (
+            "Paste from Google Sheets or Excel (select cells → Copy): columns are TAB-separated.\n"
+            "Or type one person per line. Without a header row, use this order:\n"
+            "Name — Course — Month — Email\n"
+            "Tick “First row is column names” if the first line is titles like Name, Email, …"
+        )
+        ttk.Label(win, text=help_txt, wraplength=600, justify=tk.LEFT).pack(
+            anchor=tk.W, padx=10, pady=(10, 4)
+        )
+
+        body = ttk.Frame(win, padding=(10, 4))
+        body.pack(fill=tk.BOTH, expand=True)
+        paste_text = tk.Text(body, height=16, width=80, wrap=tk.NONE)
+        vsb = ttk.Scrollbar(body, orient=tk.VERTICAL, command=paste_text.yview)
+        hsb = ttk.Scrollbar(body, orient=tk.HORIZONTAL, command=paste_text.xview)
+        paste_text.configure(yscrollcommand=vsb.set, xscrollcommand=hsb.set)
+        paste_text.grid(row=0, column=0, sticky="nsew")
+        vsb.grid(row=0, column=1, sticky="ns")
+        hsb.grid(row=1, column=0, sticky="ew")
+        body.rowconfigure(0, weight=1)
+        body.columnconfigure(0, weight=1)
+
+        ttk.Checkbutton(
+            win,
+            text="First row is column names (header)",
+            variable=header_var,
+        ).pack(anchor=tk.W, padx=10, pady=4)
+
+        btn_row = ttk.Frame(win, padding=10)
+        btn_row.pack(fill=tk.X)
+
+        def paste_from_clipboard():
+            try:
+                clip = root.clipboard_get()
+            except tk.TclError:
+                messagebox.showwarning(
+                    "Clipboard",
+                    "Could not read the clipboard. Copy cells in Sheets/Excel first, then try again.",
+                    parent=win,
+                )
+                return
+            # ✅ Replace box so a second “Paste from clipboard” doesn’t duplicate data
+            paste_text.delete("1.0", tk.END)
+            paste_text.insert(tk.END, clip)
+
+        def clear_paste_box():
+            paste_text.delete("1.0", tk.END)
+
+        def do_add_to_list():
+            raw = paste_text.get("1.0", tk.END)
+            entries_parsed, warns = parse_bulk_paste(
+                raw, first_row_is_header=header_var.get()
+            )
+            for e in entries_parsed:
+                tree.insert(
+                    "",
+                    tk.END,
+                    values=(e["name"], e["course"], e["month"], e["email"]),
+                )
+            parts = [f"Added {len(entries_parsed)} row(s) to the list."]
+            if warns:
+                show_warns = warns[:25]
+                parts.append("")
+                parts.extend(show_warns)
+                if len(warns) > 25:
+                    parts.append(f"… and {len(warns) - 25} more warning(s).")
+            msg = "\n".join(parts)
+            if warns:
+                messagebox.showwarning("Paste rows", msg, parent=win)
+            else:
+                messagebox.showinfo("Paste rows", msg, parent=win)
+            if entries_parsed:
+                win.destroy()
+
+        ttk.Button(
+            btn_row, text="Paste from clipboard", command=paste_from_clipboard
+        ).pack(side=tk.LEFT, padx=(0, 6))
+        ttk.Button(btn_row, text="Clear box", command=clear_paste_box).pack(
+            side=tk.LEFT, padx=(0, 6)
+        )
+        ttk.Button(btn_row, text="Add to list", command=do_add_to_list).pack(
+            side=tk.LEFT, padx=(0, 6)
+        )
+        ttk.Button(btn_row, text="Close", command=win.destroy).pack(side=tk.LEFT)
+
+    paste_btn.configure(command=open_paste_rows_dialog)
 
     btn_frame = ttk.Frame(tab_entries, padding=8)
     btn_frame.pack(fill=tk.X)

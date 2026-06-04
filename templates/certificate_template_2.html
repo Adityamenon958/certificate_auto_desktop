@@ -1,0 +1,292 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Certificate of Completion</title>
+
+    {% if font_css_url %}<link href="{{ font_css_url }}" rel="stylesheet">{% endif %}
+    {% if merriweather_font_css_url %}<link href="{{ merriweather_font_css_url }}" rel="stylesheet">{% endif %}
+
+    <style>
+        @page {
+            size: 210mm 297mm;
+            margin: 0;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            width: 210mm;
+            height: 297mm;
+            max-height: 297mm;
+            background-color: white;
+            font-family: 'Poppins', Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        .certificate {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 210mm;
+            height: 297mm;
+            max-height: 297mm;
+            margin: 0;
+            padding: 0;
+            background: white;
+            overflow: hidden;
+            page-break-inside: avoid;
+            page-break-after: avoid;
+        }
+
+        .border-frame {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 210mm;
+            height: 297mm;
+            z-index: 1;
+            display: block;
+            object-fit: fill;
+        }
+
+        .certificate-content {
+            position: relative;
+            width: 210mm;
+            height: 297mm;
+            z-index: 3;
+        }
+
+        .brand-top {
+            position: absolute;
+            top: 24mm;
+            left: 0;
+            right: 0;
+            text-align: center;
+            z-index: 5;
+        }
+
+        .brand-top img {
+            height: 132px;
+            width: auto;
+            object-fit: contain;
+            display: block;
+            margin: 0 auto;
+        }
+
+        .brand-title {
+            margin-top: 8px;
+            font-size: 18px;
+            font-weight: 700;
+            font-family: Arial, sans-serif;
+            color: #001f4d;
+            letter-spacing: 0.6px;
+        }
+
+        .header-block {
+            position: absolute;
+            top: 74mm;
+            left: 10mm;
+            right: 10mm;
+            text-align: center;
+            z-index: 3;
+        }
+
+        .header-title-text {
+            font-size: 37px;
+            font-weight: 700;
+            font-family: 'Merriweather', Georgia, serif;
+            color: #1D3557;
+            line-height: 50px;
+            margin: 0 auto;
+            padding: 0;
+            max-width: 175mm;
+        }
+
+        .recipient-block {
+            position: absolute;
+            top: 130mm;
+            left: 0;
+            right: 0;
+            text-align: center;
+            z-index: 3;
+        }
+
+        .certify-label {
+            font-size: 17px;
+            text-align: center;
+            font-family: 'Merriweather', Georgia, serif;
+            font-weight: 700;
+            letter-spacing: 1px;
+            color: #C5A059;
+            margin: 0;
+            padding: 0;
+        }
+
+        .name {
+            font-size: 40px;
+            font-family: 'Merriweather', Georgia, serif;
+            font-weight: 700;
+            color: #1D3557;
+            line-height: 1.1;
+            margin: 22px 0 0 0;
+            padding: 0;
+        }
+
+        .name-line-decor {
+            display: block;
+            margin: 10px auto 0 auto;
+            width: 82%;
+            max-width: 480px;
+            height: 18px;
+        }
+
+        .completion-block {
+            position: absolute;
+            top: 163mm;
+            left: 10mm;
+            right: 10mm;
+            text-align: center;
+            z-index: 3;
+        }
+
+        .completion-line {
+            font-size: 19px;
+            font-family: 'Merriweather', Georgia, serif;
+            font-weight: 700;
+            font-style: italic;
+            color: #1D3557;
+            line-height: 2.15em;
+            margin: 0;
+            padding: 0;
+        }
+
+        .completion-line.gr-line {
+            font-style: normal;
+        }
+
+        .tagline {
+            position: absolute;
+            top: 205mm;
+            left: 0;
+            right: 0;
+            font-size: 22px;
+            font-weight: 700;
+            text-align: center;
+            color: #1D3557;
+            font-family: 'Merriweather', Georgia, serif;
+            letter-spacing: 0.8px;
+            z-index: 3;
+        }
+
+        .signature-block {
+            position: absolute;
+            bottom: 28mm;
+            left: 0;
+            right: 0;
+            width: 320px;
+            margin-left: auto;
+            margin-right: auto;
+            text-align: center;
+            z-index: 5;
+        }
+
+        .signature-img {
+            height: 82px;
+            margin: 0 auto;
+            display: block;
+        }
+
+        .signature-hr {
+            border: none;
+            border-top: 1.5px solid #222;
+            width: 78%;
+            margin: 2px auto 4px auto;
+        }
+
+        .signature-label {
+            font-weight: bold;
+            font-size: 15px;
+            font-family: Arial, sans-serif;
+            text-align: center;
+            letter-spacing: 0.5px;
+        }
+
+        .logos {
+            position: absolute;
+            top: 217mm;
+            left: 0;
+            right: 0;
+            text-align: center;
+            z-index: 3;
+        }
+
+        .logos img {
+            height: 108px;
+            width: auto;
+            max-width: 190mm;
+            object-fit: contain;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="certificate">
+        <img class="border-frame" src="{{ border_frame_url }}" alt="">
+
+        <div class="certificate-content">
+            <div class="brand-top">
+                <img src="{{ logo_url }}" alt="LevelUp Logo">
+                <div class="brand-title">LEVELUP ONLINE EDUCATION</div>
+            </div>
+
+            <div class="header-block">
+                <div class="header-title-text">
+                    {{ heading_line1 }}<br>
+                    {{ heading_line2 }}
+                </div>
+            </div>
+
+            <div class="recipient-block">
+                <div class="certify-label">THIS IS TO CERTIFY THAT</div>
+                <div class="name">{{ name }}</div>
+                <svg class="name-line-decor" viewBox="0 0 520 18" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMid meet">
+                    <g fill="none" stroke="#C5A059" stroke-width="1.8">
+                        <polygon points="10,9 15,4 20,9 15,14" />
+                        <circle cx="15" cy="9" r="1.8" fill="#C5A059" stroke="none" />
+                        <line x1="24" y1="9" x2="496" y2="9" stroke="#C5A059" stroke-width="4" />
+                        <polygon points="500,9 505,4 510,9 505,14" />
+                        <circle cx="505" cy="9" r="1.8" fill="#C5A059" stroke="none" />
+                    </g>
+                </svg>
+            </div>
+
+            <div class="completion-block">
+                <div class="completion-line gr-line">with Gr.No. {{ gr_no }}</div>
+                <div class="completion-line">has successfully completed the</div>
+                <div class="completion-line course-line">{{ course }}</div>
+                <div class="completion-line">in the year {{ year }} and is placed in {{ grade }} Grade</div>
+            </div>
+
+            <div class="tagline">ALWAYS STAY LEVEL UP</div>
+
+            <div class="logos">
+                <img src="{{ certify_url }}" alt="Certified">
+            </div>
+
+            <div class="signature-block">
+                <img src="{{ signature_url }}" alt="Signature" class="signature-img">
+                <hr class="signature-hr">
+                <div class="signature-label">PRINCIPAL</div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

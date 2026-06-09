@@ -74,26 +74,24 @@ CERTIFICATE_TYPES = {
         "program_title_variants": {
             "post_grad": {
                 "label": "Post Graduation Diploma",
-                "heading_line1": "Certificate of Completion in Post Graduation Diploma",
-                "heading_line2": "in Early Childhood Care and Education",
+                "heading_line1": "Certificate of Completion in Post Graduation Diploma in",
             },
             "diploma": {
                 "label": "Diploma",
-                "heading_line1": "Certificate of Completion in Diploma",
-                "heading_line2": "in Early Childhood Care and Education",
+                "heading_line1": "Certificate of Completion in Diploma in",
             },
         },
     },
 }
 
 
-def _type2_heading_for_variant(variant_key):
-    """Return (heading_line1, heading_line2) for Type 2 certificate header text."""
+def _type2_heading_line1(variant_key):
+    """Return first header line for Type 2 (Post Grad vs Diploma)."""
     variants = CERTIFICATE_TYPES["2"].get("program_title_variants", {})
     cfg = variants.get(variant_key)
     if not cfg:
-        return None, None
-    return cfg["heading_line1"], cfg["heading_line2"]
+        return None
+    return cfg["heading_line1"]
 
 ALL_ENTRY_KEYS = (
     "name",
@@ -597,7 +595,7 @@ def generate_and_send_certificate(
     if cert_type == "1":
         render_ctx["month"] = str(entry.get("month", "")).strip()
     else:
-        line1, line2 = _type2_heading_for_variant(program_title_variant)
+        line1 = _type2_heading_line1(program_title_variant)
         if not line1:
             return False, (
                 "Select certificate title: Post Graduation Diploma or Diploma (Type 2)."
@@ -606,7 +604,7 @@ def generate_and_send_certificate(
             {
                 "gr_no": _pdf_text(entry.get("gr_no", "")),
                 "heading_line1": line1,
-                "heading_line2": line2,
+                "heading_line2": course,
                 "year": _pdf_text(entry.get("year", "")),
                 "grade": _pdf_text(entry.get("grade", "")),
                 "merriweather_font_css_url": _merriweather_font_css_url(),
@@ -931,8 +929,8 @@ def run_gui():
                     record["gr_no"] = e.get("gr_no", "")
                     record["year"] = e.get("year", "")
                     record["grade"] = e.get("grade", "")
-                    h1, h2 = _type2_heading_for_variant(title_variant)
-                    record["program_title"] = f"{h1} {h2}".strip()
+                    h1 = _type2_heading_line1(title_variant)
+                    record["program_title"] = f"{h1} {e.get('course', '')}".strip()
                 append_to_history(record)
             else:
                 failed += 1

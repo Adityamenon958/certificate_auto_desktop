@@ -92,21 +92,29 @@
         .header-block {
             position: absolute;
             top: 74mm;
-            left: 10mm;
-            right: 10mm;
+            left: 26mm;
+            right: 26mm;
             text-align: center;
             z-index: 3;
         }
 
         .header-title-text {
-            font-size: 37px;
             font-weight: 700;
             font-family: 'Merriweather', Georgia, serif;
             color: #1D3557;
-            line-height: 50px;
             margin: 0 auto;
             padding: 0;
-            max-width: 175mm;
+            max-width: 142mm;
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+        }
+
+        .header-title-line1,
+        .header-title-line2 {
+            display: inline-block;
+            max-width: 142mm;
+            font-size: 34px;
+            line-height: 46px;
         }
 
         .recipient-block {
@@ -150,8 +158,8 @@
         .completion-block {
             position: absolute;
             top: 163mm;
-            left: 10mm;
-            right: 10mm;
+            left: 26mm;
+            right: 26mm;
             text-align: center;
             z-index: 3;
         }
@@ -163,8 +171,15 @@
             font-style: normal;
             color: #1D3557;
             line-height: 2.15em;
-            margin: 0;
+            margin: 0 auto;
             padding: 0;
+            max-width: 142mm;
+            overflow-wrap: break-word;
+            word-wrap: break-word;
+        }
+
+        .completion-line.course-line {
+            line-height: 1.55em;
         }
 
         .tagline {
@@ -244,8 +259,8 @@
 
             <div class="header-block">
                 <div class="header-title-text">
-                    {{ heading_line1 }}<br>
-                    {{ heading_line2 }}
+                    <span class="header-title-line1">{{ heading_line1 }}</span><br>
+                    <span class="header-title-line2">{{ heading_line2 }}</span>
                 </div>
             </div>
 
@@ -265,7 +280,7 @@
 
             <div class="completion-block">
                 <div class="completion-line gr-line">with Gr.No. {{ gr_no }}</div>
-                <div class="completion-line">has successfully completed the</div>
+                <div class="completion-line">has successfully completed {{ diploma_type_label }} in</div>
                 <div class="completion-line course-line">{{ course }}</div>
                 <div class="completion-line">in the year {{ year }} and is placed in {{ grade }} Grade</div>
             </div>

@@ -85,10 +85,15 @@ CERTIFICATE_TYPES = {
 }
 
 
+def _type2_variant_config(variant_key):
+    """Return variant config dict for Type 2, or None if invalid."""
+    variants = CERTIFICATE_TYPES["2"].get("program_title_variants", {})
+    return variants.get(variant_key)
+
+
 def _type2_heading_line1(variant_key):
     """Return first header line for Type 2 (Post Grad vs Diploma)."""
-    variants = CERTIFICATE_TYPES["2"].get("program_title_variants", {})
-    cfg = variants.get(variant_key)
+    cfg = _type2_variant_config(variant_key)
     if not cfg:
         return None
     return cfg["heading_line1"]
@@ -600,11 +605,13 @@ def generate_and_send_certificate(
             return False, (
                 "Select certificate title: Post Graduation Diploma or Diploma (Type 2)."
             )
+        variant_cfg = _type2_variant_config(program_title_variant)
         render_ctx.update(
             {
                 "gr_no": _pdf_text(entry.get("gr_no", "")),
                 "heading_line1": line1,
                 "heading_line2": course,
+                "diploma_type_label": variant_cfg["label"],
                 "year": _pdf_text(entry.get("year", "")),
                 "grade": _pdf_text(entry.get("grade", "")),
                 "merriweather_font_css_url": _merriweather_font_css_url(),
@@ -972,14 +979,14 @@ def run_gui():
     type_frame.pack(fill=tk.X, padx=4, pady=4)
     ttk.Radiobutton(
         type_frame,
-        text="Type 1 — Achievement",
+        text="Type 1",
         variable=certificate_type_var,
         value="1",
         command=on_certificate_type_changed,
     ).pack(side=tk.LEFT, padx=(0, 12))
     ttk.Radiobutton(
         type_frame,
-        text="Type 2 — Completion",
+        text="Type 2",
         variable=certificate_type_var,
         value="2",
         command=on_certificate_type_changed,

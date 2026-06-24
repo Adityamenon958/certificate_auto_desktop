@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <title>Marksheet</title>
+    {% if font_css_url %}<link href="{{ font_css_url }}" rel="stylesheet">{% endif %}
+    <style>
+        @page {
+            size: 810px 1440px;
+            margin: 0;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            width: 810px;
+            height: 1440px;
+            background: white;
+            font-family: 'Poppins', Arial, sans-serif;
+            overflow: hidden;
+        }
+
+        .marksheet {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 810px;
+            height: 1440px;
+            overflow: hidden;
+        }
+
+        .border-frame {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 810px;
+            height: 1440px;
+            z-index: 1;
+            display: block;
+            object-fit: fill;
+        }
+
+        .content {
+            position: relative;
+            z-index: 3;
+            width: 810px;
+            height: 1440px;
+            padding: 78px 40px 32px 40px;
+        }
+
+        .logo-wrap {
+            position: absolute;
+            top: 18px;
+            right: 8px;
+            text-align: center;
+        }
+
+        .logo-wrap img {
+            height: 132px;
+            width: auto;
+            object-fit: contain;
+        }
+
+        .title-block {
+            text-align: center;
+            margin-top: 12px;
+            margin-left: 110px;
+            padding-right: 90px;
+        }
+
+        .title-main {
+            font-family: 'Montserrat', Arial, sans-serif;
+            font-size: 24px;
+            font-weight: 700;
+            letter-spacing: 0.4px;
+            margin: 0 0 10px 0;
+        }
+
+        .title-sub {
+            font-family: 'Montserrat', Arial, sans-serif;
+            font-size: 30px;
+            font-weight: 700;
+            line-height: 1.28;
+            margin: 0 0 26px 0;
+            max-width: 680px;
+            margin-left: auto;
+            margin-right: auto;
+        }
+
+        .student-row {
+            display: table;
+            width: 100%;
+            font-family: 'Poppins', Arial, sans-serif;
+            font-size: 19px;
+            font-weight: 500;
+            margin-bottom: 22px;
+        }
+
+        .student-row .left {
+            display: table-cell;
+            text-align: left;
+            width: 68%;
+        }
+
+        .student-row .right {
+            display: table-cell;
+            text-align: right;
+            width: 32%;
+        }
+
+        .student-row .right .gr-no {
+            text-decoration: underline;
+        }
+
+        /* ---- Marks table (match reference layout) ---- */
+        table.marks-table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+            font-size: 13px;
+        }
+
+        table.marks-table col.col-subject {
+            width: 50%;
+        }
+
+        table.marks-table col.col-num {
+            width: 16.66%;
+        }
+
+        table.marks-table th,
+        table.marks-table td {
+            border: 1px solid #000;
+            text-align: center;
+            vertical-align: middle;
+        }
+
+        table.marks-table th {
+            background-color: #0a6b6b;
+            color: #fff;
+            font-family: 'Montserrat', Arial, sans-serif;
+            font-weight: 600;
+            font-size: 13px;
+            text-transform: uppercase;
+            letter-spacing: 0.2px;
+            line-height: 1.25;
+            padding: 22px 10px;
+        }
+
+        table.marks-table td {
+            font-family: 'Poppins', Arial, sans-serif;
+            font-weight: 400;
+            font-size: 13px;
+            line-height: 1.35;
+            word-wrap: break-word;
+            overflow-wrap: break-word;
+            padding: 24px 10px;
+            min-height: 54px;
+        }
+
+        table.marks-table tr.section-header th {
+            background-color: #0a6b6b;
+        }
+
+        .summary-line {
+            position: absolute;
+            left: 88px;
+            right: 40px;
+            bottom: 238px;
+            margin-top: 0;
+            font-family: 'Poppins', Arial, sans-serif;
+            font-size: 19px;
+            font-weight: 500;
+            text-align: left;
+            letter-spacing: 0.2px;
+        }
+
+        .footer-logos {
+            position: absolute;
+            left: 40px;
+            right: 40px;
+            bottom: 108px;
+            text-align: center;
+        }
+
+        .footer-logos img {
+            height: 96px;
+            width: auto;
+            max-width: 740px;
+            object-fit: contain;
+        }
+
+        .footer-bottom {
+            position: absolute;
+            left: 40px;
+            right: 40px;
+            bottom: 26px;
+            height: 72px;
+        }
+
+        .footer-bottom .place {
+            position: absolute;
+            left: 0;
+            bottom: 0;
+            font-family: 'Poppins', Arial, sans-serif;
+            font-size: 19px;
+            font-weight: 500;
+            line-height: 1.2;
+        }
+
+        .footer-bottom .sign-block {
+            position: absolute;
+            right: 155px;
+            bottom: 0;
+            text-align: right;
+        }
+
+        .footer-bottom .sign-block img {
+            height: 58px;
+            display: block;
+            margin: 0 0 2px 0;
+            margin-left: auto;
+        }
+
+        .stamp-label {
+            font-family: 'Poppins', Arial, sans-serif;
+            font-size: 15px;
+            font-weight: 500;
+            margin-top: 2px;
+            text-align: right;
+            margin-right: 52px;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="marksheet">
+        <img class="border-frame" src="{{ border_frame_url }}" alt="">
+
+        <div class="content">
+            <div class="logo-wrap">
+                <img src="{{ logo_url }}" alt="LevelUp Logo">
+            </div>
+
+            <div class="title-block">
+                <div class="title-main">• MARKSHEET - {{ year }}</div>
+                <div class="title-sub">
+                    {%- set sub_parts = subtitle.rsplit(' AND ', 1) -%}
+                    {%- if sub_parts|length > 1 -%}
+                    {{ sub_parts[0] }} AND<br>{{ sub_parts[1] }}
+                    {%- else -%}
+                    {{ subtitle }}
+                    {%- endif -%}
+                </div>
+            </div>
+
+            <div class="student-row">
+                <div class="left">Student Name: {{ name }}</div>
+                <div class="right">GR.No. <span class="gr-no">{{ gr_no }}</span></div>
+            </div>
+
+            <table class="marks-table">
+                <colgroup>
+                    <col class="col-subject">
+                    <col class="col-num">
+                    <col class="col-num">
+                    <col class="col-num">
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th>THEORY SUBJECTS</th>
+                        <th>MAXIMUM MARKS</th>
+                        <th>MINIMUM MARKS</th>
+                        <th>MARKS OBTAINED</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for row in theory_subjects %}
+                    <tr>
+                        <td>{{ row.name }}</td>
+                        <td>{{ row.max }}</td>
+                        <td>{{ row.min }}</td>
+                        <td>{{ row.obtained }}</td>
+                    </tr>
+                    {% endfor %}
+                    <tr class="section-header">
+                        <th>PRACTICAL SUBJECTS</th>
+                        <th>MAXIMUM MARKS</th>
+                        <th>MINIMUM MARKS</th>
+                        <th>MARKS OBTAINED</th>
+                    </tr>
+                    {% for row in practical_subjects %}
+                    <tr>
+                        <td>{{ row.name }}</td>
+                        <td>{{ row.max }}</td>
+                        <td>{{ row.min }}</td>
+                        <td>{{ row.obtained }}</td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+
+            <div class="summary-line">
+                Total Marks : {{ total_marks }} &nbsp;&nbsp; Out of: {{ out_of }} &nbsp;&nbsp; Percentage : {{ percentage }} &nbsp;&nbsp; Grade : {{ grade }}
+            </div>
+
+            <div class="footer-logos">
+                <img src="{{ certify_url }}" alt="Certified">
+            </div>
+
+            <div class="footer-bottom">
+                <div class="place">MUMBAI<br>PLACE</div>
+                <div class="sign-block">
+                    <img src="{{ signature_url }}" alt="Signature">
+                    <div class="stamp-label">Stamp</div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+
+</html>

@@ -52,6 +52,23 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")
 SENDER_EMAIL = os.getenv("SENDER_EMAIL")
 TEMPLATE_NAME = os.getenv("TEMPLATE_NAME", "certificate_template.html")
 TEMPLATE_NAME_2 = os.getenv("TEMPLATE_NAME_2", "certificate_template_2.html")
+TEMPLATE_NAME_MARKSHEET = os.getenv("TEMPLATE_NAME_MARKSHEET", "marksheet_template.html")
+
+MARKSHEET_SUBJECTS = (
+    {"key": "theory_1", "section": "theory", "name": "OVERVIEW OF EARLY CHILDHOOD EDUCATION"},
+    {"key": "theory_2", "section": "theory", "name": "SPECIAL CHILDREN"},
+    {"key": "theory_3", "section": "theory", "name": "KNOWLEDGE ABOUT CHILD DEVELOPMENT"},
+    {"key": "theory_4", "section": "theory", "name": "NUTRITION IN CHILD DEVELOPMENT"},
+    {"key": "theory_5", "section": "theory", "name": "CURRICULUM"},
+    {"key": "theory_6", "section": "theory", "name": "CLASSROOM MANAGEMENT"},
+    {"key": "practical_1", "section": "practical", "name": "CREATIVE JOURNALS"},
+    {"key": "practical_2", "section": "practical", "name": "LESSON PLAN / WORKSHEET TECHNIQUE"},
+    {"key": "practical_3", "section": "practical", "name": "LEARNING GAMES HOLISTIC DEVELOPMENT OF PRESCHOOLER"},
+    {"key": "practical_4", "section": "practical", "name": "INTERVIEW / RESUME TECHNIQUE"},
+)
+MARK_KEYS = tuple(s["key"] for s in MARKSHEET_SUBJECTS)
+MARKSHEET_MIN_TOTAL = 750
+MARKSHEET_OUT_OF = 1000
 
 CERTIFICATE_TYPES = {
     "1": {
@@ -82,7 +99,20 @@ CERTIFICATE_TYPES = {
             },
         },
     },
+    "3": {
+        "label": "Marksheet",
+        "template": TEMPLATE_NAME_MARKSHEET,
+        "page_width": "810px",
+        "page_height": "1440px",
+        "required": ("name", "gr_no", "year", "email") + MARK_KEYS,
+        "tree_columns": ("Name", "Gr.No.", "Total", "Grade", "Email"),
+        "entry_keys": ("name", "gr_no", "year", "email") + MARK_KEYS,
+        "subtitle": "DIPLOMA IN EARLY CHILDHOOD CARE AND EDUCATION",
+    },
 }
+
+MARKSHEET_OUTPUT_DIR = os.path.join(OUTPUT_DIR, "marksheets")
+os.makedirs(MARKSHEET_OUTPUT_DIR, exist_ok=True)
 
 
 def _type2_variant_config(variant_key):
@@ -98,6 +128,106 @@ def _type2_heading_line1(variant_key):
         return None
     return cfg["heading_line1"]
 
+
+def _parse_mark_value(value):
+    """Return int 0–100 or raise ValueError."""
+    s = str(value).strip()
+    if not s:
+        raise ValueError("empty")
+    try:
+        n = int(s)
+    except ValueError:
+        raise ValueError("not an integer")
+    if n < 0 or n > 100:
+        raise ValueError("out of range")
+    return n
+
+
+def marks_from_entry(entry):
+    """Extract marks dict from entry; raises ValueError on invalid mark."""
+    marks = {}
+    for key in MARK_KEYS:
+        marks[key] = _parse_mark_value(entry.get(key, ""))
+    return marks
+
+
+def calc_marksheet_totals(entry_or_marks):
+    """Compute total, percentage (out of 1000), and grade B / A+."""
+    if isinstance(entry_or_marks, dict) and any(k in entry_or_marks for k in MARK_KEYS):
+        marks = marks_from_entry(entry_or_marks)
+    else:
+        marks = entry_or_marks
+    total = sum(marks[k] for k in MARK_KEYS)
+    percentage = round(total / 10.0, 1)
+    grade = "A+" if total >= 800 else "B"
+    return {"total": total, "percentage": percentage, "grade": grade, "marks": marks}
+
+
+def validate_marksheet_batch(entries):
+    """
+    Pre-check all marksheet entries before generating any PDF.
+    Returns (ok, failures) where failures is a list of dicts with name, gr_no, total.
+    """
+    failures = []
+    for entry in entries:
+        try:
+            totals = calc_marksheet_totals(entry)
+        except ValueError:
+            failures.append(
+                {
+                    "name": entry.get("name", ""),
+                    "gr_no": entry.get("gr_no", ""),
+                    "total": None,
+                    "error": "invalid marks",
+                }
+            )
+            continue
+        if totals["total"] < MARKSHEET_MIN_TOTAL:
+            failures.append(
+                {
+                    "name": entry.get("name", ""),
+                    "gr_no": entry.get("gr_no", ""),
+                    "total": totals["total"],
+                }
+            )
+    return len(failures) == 0, failures
+
+
+def format_marksheet_batch_failure_message(failures):
+    lines = [
+        "Cannot generate marksheets. The following students have total marks below 750:",
+        "",
+    ]
+    for f in failures:
+        name = f.get("name", "")
+        gr = f.get("gr_no", "")
+        total = f.get("total")
+        if total is None:
+            lines.append(f"  • {name} ({gr}) — invalid marks")
+        else:
+            lines.append(f"  • {name} ({gr}) — {total}")
+    lines.append("")
+    lines.append("Fix marks and try again. No marksheets were generated or sent.")
+    return "\n".join(lines)
+
+
+def _marksheet_subject_rows(marks):
+    theory = []
+    practical = []
+    for subj in MARKSHEET_SUBJECTS:
+        row = {
+            "name": subj["name"],
+            "max": 100,
+            "min": 35,
+            "obtained": marks[subj["key"]],
+        }
+        if subj["section"] == "theory":
+            theory.append(row)
+        else:
+            practical.append(row)
+    return theory, practical
+
+
 ALL_ENTRY_KEYS = (
     "name",
     "course",
@@ -106,9 +236,11 @@ ALL_ENTRY_KEYS = (
     "gr_no",
     "year",
     "grade",
+    "total",
+    "percentage",
     "date_of_completion",
     "scheduled_time",
-)
+) + MARK_KEYS
 
 # Save/Load list path (next to exe or in project root)
 ENTRIES_JSON = os.path.join(EXE_DIR, "certificate_entries.json")
@@ -169,6 +301,8 @@ _HEADER_TO_KEY = {
     "program title": "program_title",
     "program_title": "program_title",
 }
+for _mi, _mk in enumerate(MARK_KEYS, start=1):
+    _HEADER_TO_KEY[f"m{_mi}"] = _mk
 
 
 def _normalize_header(h):
@@ -362,7 +496,8 @@ def parse_bulk_paste(text, certificate_type="1", first_row_is_header=False):
     Parse pasted text from Google Sheets / Excel / Notepad.
     Type 1 without header: Name, Course, Month, Email
     Type 2 without header: Name, Gr.No., Course, Year, Grade, Email
-    With header: first row is column titles; uses same names as CSV import.
+    Type 3 without header: Name, Gr.No., Year, Email, then 10 marks (M1..M10 order)
+    With header: first row is column titles; uses same names as CSV import (M1..M10 for marks).
 
     Returns (entries, warnings) where entries match the active certificate type keys.
     """
@@ -430,6 +565,17 @@ def parse_bulk_paste(text, certificate_type="1", first_row_is_header=False):
                 f"Row {row_idx}: skipped — missing {', '.join(missing)} ({name!r})."
             )
             continue
+        if cert_type == "3":
+            try:
+                totals = calc_marksheet_totals(d)
+                d["total"] = str(totals["total"])
+                d["percentage"] = str(totals["percentage"])
+                d["grade"] = totals["grade"]
+            except ValueError:
+                warnings.append(
+                    f"Row {row_idx}: skipped — invalid marks ({name!r})."
+                )
+                continue
         entries_out.append(d)
 
     return entries_out, warnings
@@ -440,7 +586,8 @@ def _image_path(filename):
 
 
 def _font_css_url():
-    path = os.path.join(STATIC_DIR, "fonts", "poppins.css")
+    """Local @font-face CSS for embedded PDF fonts (Cormorant, Montserrat, Cinzel, Poppins)."""
+    path = os.path.join(STATIC_DIR, "fonts", "certificate-fonts.css")
     if os.path.isfile(path):
         return "file:///" + os.path.normpath(path).replace("\\", "/")
     return ""
@@ -468,7 +615,7 @@ def _image_data_url(path):
 
 
 def _load_certificate_images(certificate_type="1"):
-    """Load logo, certify badge, signature (and Type 2 border) as base64 data URLs."""
+    """Load logo, certify badge, signature (and border frame for Type 2 / 3) as base64 data URLs."""
     urls = {}
     for key, filename in (
         ("logo_url", "logo.png"),
@@ -477,8 +624,13 @@ def _load_certificate_images(certificate_type="1"):
     ):
         path = _image_path(filename)
         urls[key] = _image_data_url(path)
-    if certificate_type == "2":
-        border_path = os.path.join(STATIC_DIR, "border_frame.png")
+    border_files = {
+        "2": "border_frame.png",
+        "3": "border_frame_marksheet.png",
+    }
+    border_file = border_files.get(certificate_type)
+    if border_file:
+        border_path = os.path.join(STATIC_DIR, border_file)
         if not os.path.isfile(border_path):
             raise FileNotFoundError(border_path)
         urls["border_frame_url"] = _image_data_url(border_path)
@@ -494,9 +646,26 @@ def send_email(
     month=None,
     year=None,
     grade=None,
+    total_marks=None,
+    percentage=None,
 ):
     unsubscribe_link = os.getenv("UNSUBSCRIBE_LINK", "https://leveluponline.shop/")
-    if certificate_type == "2":
+    if certificate_type == "3":
+        total_marks = total_marks if total_marks is not None else ""
+        percentage = percentage if percentage is not None else ""
+        body = f"""
+    <html><body>
+    <p>Dear {name},</p>
+    <p>Please find your marksheet for {year} attached.</p>
+    <p>Total marks: {total_marks} / 1000 &nbsp;|&nbsp; Percentage: {percentage}% &nbsp;|&nbsp; Grade: {grade}</p>
+    <br><br>
+    <p style="font-size:12px;color:gray;">
+    If you no longer wish to receive emails, you can <a href="{unsubscribe_link}">unsubscribe here</a>.
+    </p>
+    </body></html>
+    """
+        subject = f"Marksheet: {name} — {year}"
+    elif certificate_type == "2":
         body = f"""
     <html><body>
     <p>Dear {name},</p>
@@ -690,9 +859,241 @@ def generate_and_send_certificate(
         return False, str(e)
 
 
+def generate_and_send_marksheet(entry, log_callback=None):
+    """
+    Generate marksheet PDF and send email. Batch must pass validate_marksheet_batch first.
+    Returns (success: bool, message: str).
+    """
+    def log(msg):
+        if log_callback:
+            log_callback(msg)
+        else:
+            print(msg)
+
+    entry = entry or {}
+    type_cfg = CERTIFICATE_TYPES["3"]
+
+    missing = [k for k in type_cfg["required"] if not str(entry.get(k, "")).strip()]
+    if missing:
+        return False, f"Missing required field(s): {', '.join(missing)}"
+
+    try:
+        totals = calc_marksheet_totals(entry)
+    except ValueError as e:
+        return False, f"Invalid marks for {entry.get('name', '')}: {e}"
+
+    name = _pdf_text(entry.get("name", ""))
+    email = str(entry.get("email", "")).strip()
+    year = _pdf_text(entry.get("year", ""))
+    gr_no = _pdf_text(entry.get("gr_no", ""))
+    marks = totals["marks"]
+
+    try:
+        config = get_pdfkit_config()
+    except Exception as e:
+        return False, f"wkhtmltopdf config failed: {e}"
+
+    try:
+        image_urls = _load_certificate_images("3")
+    except FileNotFoundError as e:
+        return False, f"Missing image: {e}"
+
+    theory_rows, practical_rows = _marksheet_subject_rows(marks)
+    env = Environment(loader=FileSystemLoader(TEMPLATE_DIR))
+    template = env.get_template(type_cfg["template"])
+    html = template.render(
+        name=name,
+        gr_no=gr_no,
+        year=year,
+        subtitle=type_cfg["subtitle"],
+        theory_subjects=theory_rows,
+        practical_subjects=practical_rows,
+        total_marks=totals["total"],
+        out_of=MARKSHEET_OUT_OF,
+        percentage=totals["percentage"],
+        grade=totals["grade"],
+        font_css_url=_font_css_url(),
+        **image_urls,
+    )
+
+    safe_name = name.replace(" ", "_").replace("/", "_")
+    safe_gr = gr_no.replace(" ", "_").replace("/", "_")
+    output_path = os.path.join(
+        MARKSHEET_OUTPUT_DIR,
+        f"{safe_name}_{safe_gr}_Marksheet_{year}.pdf",
+    )
+
+    options = {
+        "enable-local-file-access": None,
+        "no-stop-slow-scripts": "",
+        "quiet": "",
+        "margin-top": "0mm",
+        "margin-bottom": "0mm",
+        "margin-left": "0mm",
+        "margin-right": "0mm",
+        "page-width": type_cfg["page_width"],
+        "page-height": type_cfg["page_height"],
+        "disable-smart-shrinking": None,
+        "print-media-type": None,
+        "dpi": "96",
+    }
+
+    try:
+        pdfkit.from_string(html, output_path, configuration=config, options=options)
+    except Exception as e:
+        return False, f"PDF failed: {e}"
+
+    try:
+        send_email(
+            email,
+            output_path,
+            name,
+            "",
+            certificate_type="3",
+            year=year,
+            grade=totals["grade"],
+            total_marks=totals["total"],
+            percentage=totals["percentage"],
+        )
+        log(f"[SENT] {name} ({email})")
+        return True, "Sent"
+    except Exception as e:
+        log(f"[ERROR] {name}: {e}")
+        return False, str(e)
+
+
 # ---------------------------------------------------------------------------
-# GUI
+# GUI — LevelUp branding
 # ---------------------------------------------------------------------------
+LEVELUP_COLORS = {
+    "teal": "#0a6b6b",
+    "teal_dark": "#085656",
+    "gold": "#c9a227",
+    "gold_light": "#e8d5a3",
+    "navy": "#1D3557",
+    "bg": "#f5f9f9",
+    "white": "#ffffff",
+}
+
+
+def _setup_gui_theme(root):
+  import tkinter as tk
+  from tkinter import ttk
+
+  c = LEVELUP_COLORS
+  style = ttk.Style(root)
+  try:
+    style.theme_use("clam")
+  except tk.TclError:
+    pass
+
+  bg = c["bg"]
+  style.configure(".", background=bg, foreground=c["navy"])
+  style.configure("TFrame", background=bg)
+  style.configure("TLabel", background=bg, foreground=c["navy"])
+  style.configure("TNotebook", background=bg, borderwidth=0)
+  style.configure("TNotebook.Tab", padding=(14, 8), font=("Segoe UI", 10, "bold"))
+  style.map(
+    "TNotebook.Tab",
+    background=[("selected", c["teal"]), ("!selected", bg)],
+    foreground=[("selected", c["white"]), ("!selected", c["navy"])],
+  )
+  style.configure("TLabelframe", background=bg)
+  style.configure(
+    "TLabelframe.Label",
+    background=bg,
+    foreground=c["teal_dark"],
+    font=("Segoe UI", 10, "bold"),
+  )
+  style.configure("TRadiobutton", background=bg, foreground=c["navy"])
+  style.configure("TCheckbutton", background=bg, foreground=c["navy"])
+  style.configure("TButton", font=("Segoe UI", 9), padding=(10, 5))
+  style.configure(
+    "Accent.TButton",
+    background=c["teal"],
+    foreground=c["white"],
+    font=("Segoe UI", 10, "bold"),
+    padding=(12, 6),
+  )
+  style.map(
+    "Accent.TButton",
+    background=[("active", c["teal_dark"]), ("pressed", c["teal_dark"])],
+    foreground=[("active", c["white"]), ("pressed", c["white"])],
+  )
+  style.configure(
+    "Treeview",
+    background=c["white"],
+    fieldbackground=c["white"],
+    foreground=c["navy"],
+    rowheight=24,
+  )
+  style.configure(
+    "Treeview.Heading",
+    background=c["teal"],
+    foreground=c["white"],
+    font=("Segoe UI", 9, "bold"),
+  )
+  style.map(
+    "Treeview",
+    background=[("selected", c["teal"])],
+    foreground=[("selected", c["white"])],
+  )
+  root.configure(bg=bg)
+
+
+def _load_header_logo(root, max_height=58):
+  import tkinter as tk
+
+  path = _image_path("logo.png")
+  if not os.path.isfile(path):
+    return None
+  try:
+    img = tk.PhotoImage(file=path)
+    h = img.height()
+    if h > max_height:
+      factor = max(1, round(h / max_height))
+      img = img.subsample(factor, factor)
+    root._header_logo_img = img
+    return img
+  except tk.TclError:
+    return None
+
+
+def _build_app_header(root):
+  import tkinter as tk
+
+  c = LEVELUP_COLORS
+  wrapper = tk.Frame(root, bg=c["teal_dark"], highlightthickness=0)
+  wrapper.pack(side=tk.TOP, fill=tk.X)
+
+  header = tk.Frame(wrapper, bg=c["teal"], height=72)
+  header.pack(fill=tk.X)
+  header.pack_propagate(False)
+
+  logo = _load_header_logo(root)
+  if logo:
+    tk.Label(header, image=logo, bg=c["teal"]).pack(side=tk.LEFT, padx=(14, 10), pady=6)
+
+  text_col = tk.Frame(header, bg=c["teal"])
+  text_col.pack(side=tk.LEFT, fill=tk.Y, pady=10)
+  tk.Label(
+    text_col,
+    text="LEVELUP ONLINE EDUCATION",
+    bg=c["teal"],
+    fg=c["white"],
+    font=("Segoe UI", 13, "bold"),
+  ).pack(anchor=tk.W)
+  tk.Label(
+    text_col,
+    text="Certificate Auto",
+    bg=c["teal"],
+    fg=c["gold_light"],
+    font=("Segoe UI", 10),
+  ).pack(anchor=tk.W, pady=(2, 0))
+
+  tk.Frame(wrapper, bg=c["gold"], height=3).pack(fill=tk.X)
+
+
 def run_gui():
     import tkinter as tk
     from tkinter import ttk, messagebox, filedialog
@@ -700,6 +1101,8 @@ def run_gui():
     form_widgets = {}
     tree = None
     list_frame = None
+    entry_store = {}
+    last_cert_type = ["1"]
 
     def get_certificate_type():
         t = certificate_type_var.get()
@@ -709,8 +1112,24 @@ def run_gui():
         return CERTIFICATE_TYPES[cert_type or get_certificate_type()]["entry_keys"]
 
     def tree_values_from_entry(entry, cert_type=None):
+        cert_type = cert_type or get_certificate_type()
+        if cert_type == "3":
+            return (
+                entry.get("name", ""),
+                entry.get("gr_no", ""),
+                str(entry.get("total", "")),
+                entry.get("grade", ""),
+                entry.get("email", ""),
+            )
         keys = entry_keys_for_type(cert_type)
         return tuple(entry.get(k, "") for k in keys)
+
+    def insert_tree_row(entry, cert_type=None):
+        cert_type = cert_type or get_certificate_type()
+        iid = tree.insert("", tk.END, values=tree_values_from_entry(entry, cert_type))
+        if cert_type == "3":
+            entry_store[iid] = dict(entry)
+        return iid
 
     def entry_from_tree_values(vals, cert_type=None):
         keys = entry_keys_for_type(cert_type)
@@ -737,10 +1156,11 @@ def run_gui():
             tree.column("Email", width=180)
         if "Gr.No." in cols:
             tree.column("Gr.No.", width=90)
+        if "Total" in cols:
+            tree.column("Total", width=70)
+        entry_store.clear()
         for row_id in tree.get_children():
             tree.delete(row_id)
-        for vals in saved:
-            tree.insert("", tk.END, values=vals)
 
     def update_form_visibility():
         cert_type = get_certificate_type()
@@ -753,24 +1173,34 @@ def run_gui():
                     w.grid_remove()
         if cert_type == "2":
             if not program_title_option_frame.winfo_ismapped():
-                program_title_option_frame.pack(fill=tk.X, padx=4, pady=4, before=form)
+                program_title_option_frame.pack(
+                    fill=tk.X, padx=4, pady=4, before=entry_row_frame
+                )
         else:
             program_title_option_frame.pack_forget()
+        if cert_type == "3":
+            marks_panel_frame.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+            form.grid(row=0, column=1, sticky="nsew")
+            root.after_idle(_refresh_marks_scrollregion)
+        else:
+            marks_panel_frame.grid_remove()
+            form.grid(row=0, column=0, columnspan=2, sticky="ew")
 
     def on_certificate_type_changed():
         if tree is None:
             return
+        new_type = certificate_type_var.get()
         if tree.get_children():
             if not messagebox.askyesno(
-                "Switch certificate type",
+                "Switch document type",
                 "Switching type will clear the entry list. Continue?",
             ):
-                certificate_type_var.set(
-                    "2" if certificate_type_var.get() == "1" else "1"
-                )
+                certificate_type_var.set(last_cert_type[0])
                 return
+            entry_store.clear()
             for i in tree.get_children():
                 tree.delete(i)
+        last_cert_type[0] = new_type
         rebuild_tree_columns()
         if get_certificate_type() != "2":
             program_title_variant_var.set("")
@@ -790,6 +1220,39 @@ def run_gui():
 
     def add_entry():
         cert_type = get_certificate_type()
+        if cert_type == "3":
+            entry = {
+                "name": field_vars["name"].get().strip(),
+                "gr_no": field_vars["gr_no"].get().strip(),
+                "year": field_vars["year"].get().strip(),
+                "email": field_vars["email"].get().strip(),
+            }
+            if not entry.get("name") or not entry.get("email"):
+                messagebox.showwarning("Add entry", "Name and Email are required.")
+                return
+            if not entry.get("gr_no") or not entry.get("year"):
+                messagebox.showwarning("Add entry", "Gr.No. and Year are required.")
+                return
+            try:
+                for key in MARK_KEYS:
+                    entry[key] = str(_parse_mark_value(mark_vars[key].get()))
+            except ValueError:
+                messagebox.showwarning(
+                    "Add entry",
+                    "Each subject mark must be a whole number from 0 to 100.",
+                )
+                return
+            totals = calc_marksheet_totals(entry)
+            entry["total"] = str(totals["total"])
+            entry["percentage"] = str(totals["percentage"])
+            entry["grade"] = totals["grade"]
+            insert_tree_row(entry, cert_type)
+            for k in ("name", "gr_no", "year", "email"):
+                field_vars[k].set("")
+            for key in MARK_KEYS:
+                mark_vars[key].set("")
+            return
+
         keys = entry_keys_for_type(cert_type)
         entry = {k: field_vars[k].get().strip() for k in keys}
         if not entry.get("name") or not entry.get("email"):
@@ -810,15 +1273,19 @@ def run_gui():
     def remove_selected():
         sel = tree.selection()
         for i in sel:
+            entry_store.pop(i, None)
             tree.delete(i)
 
     def clear_list():
         if messagebox.askyesno("Clear list", "Remove all entries from the list?"):
+            entry_store.clear()
             for i in tree.get_children():
                 tree.delete(i)
 
     def get_entries():
         cert_type = get_certificate_type()
+        if cert_type == "3":
+            return [entry_store[iid].copy() for iid in tree.get_children() if iid in entry_store]
         out = []
         for row in tree.get_children():
             vals = tree.item(row, "values")
@@ -861,6 +1328,7 @@ def run_gui():
             data = load_entries_from_file(path)
             cert_type = get_certificate_type()
             keys = entry_keys_for_type(cert_type)
+            entry_store.clear()
             for i in tree.get_children():
                 tree.delete(i)
             loaded = 0
@@ -875,7 +1343,19 @@ def run_gui():
                 ]
                 if missing:
                     continue
-                tree.insert("", tk.END, values=tree_values_from_entry(entry, cert_type))
+                if cert_type == "3":
+                    try:
+                        for key in MARK_KEYS:
+                            entry[key] = str(_parse_mark_value(entry.get(key, "")))
+                        totals = calc_marksheet_totals(entry)
+                        entry["total"] = str(totals["total"])
+                        entry["percentage"] = str(totals["percentage"])
+                        entry["grade"] = totals["grade"]
+                    except ValueError:
+                        continue
+                    insert_tree_row(entry, cert_type)
+                else:
+                    tree.insert("", tk.END, values=tree_values_from_entry(entry, cert_type))
                 loaded += 1
             messagebox.showinfo(
                 "Load",
@@ -914,33 +1394,62 @@ def run_gui():
                 status_var.set("Ready")
                 return
 
-        for e in entries:
-            ok, msg = generate_and_send_certificate(
-                cert_type,
-                e,
-                program_title_variant=title_variant,
-                log_callback=log,
-            )
-            if ok:
-                sent += 1
-                record = {
-                    "sent_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                    "certificate_type": cert_type,
-                    "name": e.get("name", ""),
-                    "email": e.get("email", ""),
-                    "course": e.get("course", ""),
-                }
-                if cert_type == "1":
-                    record["month"] = e.get("month", "")
+        if cert_type == "3":
+            ok_batch, failures = validate_marksheet_batch(entries)
+            if not ok_batch:
+                messagebox.showwarning(
+                    "Marksheet batch blocked",
+                    format_marksheet_batch_failure_message(failures),
+                )
+                status_var.set("Ready")
+                return
+            for e in entries:
+                ok, msg = generate_and_send_marksheet(e, log_callback=log)
+                if ok:
+                    sent += 1
+                    record = {
+                        "sent_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "certificate_type": "3",
+                        "name": e.get("name", ""),
+                        "email": e.get("email", ""),
+                        "course": "Marksheet",
+                        "gr_no": e.get("gr_no", ""),
+                        "year": e.get("year", ""),
+                        "grade": e.get("grade", ""),
+                        "total_marks": e.get("total", ""),
+                        "percentage": e.get("percentage", ""),
+                    }
+                    append_to_history(record)
                 else:
-                    record["gr_no"] = e.get("gr_no", "")
-                    record["year"] = e.get("year", "")
-                    record["grade"] = e.get("grade", "")
-                    h1 = _type2_heading_line1(title_variant)
-                    record["program_title"] = f"{h1} {e.get('course', '')}".strip()
-                append_to_history(record)
-            else:
-                failed += 1
+                    failed += 1
+        else:
+            for e in entries:
+                ok, msg = generate_and_send_certificate(
+                    cert_type,
+                    e,
+                    program_title_variant=title_variant,
+                    log_callback=log,
+                )
+                if ok:
+                    sent += 1
+                    record = {
+                        "sent_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                        "certificate_type": cert_type,
+                        "name": e.get("name", ""),
+                        "email": e.get("email", ""),
+                        "course": e.get("course", ""),
+                    }
+                    if cert_type == "1":
+                        record["month"] = e.get("month", "")
+                    else:
+                        record["gr_no"] = e.get("gr_no", "")
+                        record["year"] = e.get("year", "")
+                        record["grade"] = e.get("grade", "")
+                        h1 = _type2_heading_line1(title_variant)
+                        record["program_title"] = f"{h1} {e.get('course', '')}".strip()
+                    append_to_history(record)
+                else:
+                    failed += 1
 
         status_var.set(f"Done. Sent: {sent}, Failed: {failed}")
         if refresh_history_ui[0]:
@@ -952,9 +1461,11 @@ def run_gui():
     refresh_history_ui = [None]
 
     root = tk.Tk()
-    root.title("Certificate Auto")
+    root.title("Certificate Auto — LevelUp")
     root.minsize(700, 550)
     root.geometry("800x600")
+    _setup_gui_theme(root)
+    _build_app_header(root)
 
     certificate_type_var = tk.StringVar(master=root, value="1")
     program_title_variant_var = tk.StringVar(master=root, value="")
@@ -975,7 +1486,35 @@ def run_gui():
     tab_entries = ttk.Frame(notebook, padding=4)
     notebook.add(tab_entries, text="Entries")
 
-    type_frame = ttk.LabelFrame(tab_entries, text="Certificate type (whole batch)", padding=8)
+    # Pinned footer: action buttons + status + log always visible on small screens
+    entries_footer = ttk.Frame(tab_entries)
+    entries_footer.pack(side=tk.BOTTOM, fill=tk.X)
+
+    log_frame = ttk.LabelFrame(tab_entries, text="Log", padding=4)
+    log_frame.pack(side=tk.BOTTOM, fill=tk.X, padx=4, pady=(0, 4))
+    log_text = tk.Text(
+        log_frame,
+        height=3,
+        wrap=tk.WORD,
+        state=tk.NORMAL,
+        bg=LEVELUP_COLORS["white"],
+        fg=LEVELUP_COLORS["navy"],
+        relief=tk.FLAT,
+        padx=6,
+        pady=4,
+    )
+    log_text.pack(fill=tk.X)
+
+    status_var = tk.StringVar(value="Ready")
+    ttk.Label(entries_footer, textvariable=status_var).pack(anchor=tk.W, padx=8, pady=(0, 2))
+
+    btn_frame = ttk.Frame(entries_footer, padding=8)
+    btn_frame.pack(fill=tk.X)
+
+    entries_main = ttk.Frame(tab_entries)
+    entries_main.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+    type_frame = ttk.LabelFrame(entries_main, text="Certificate type (whole batch)", padding=8)
     type_frame.pack(fill=tk.X, padx=4, pady=4)
     ttk.Radiobutton(
         type_frame,
@@ -991,9 +1530,101 @@ def run_gui():
         value="2",
         command=on_certificate_type_changed,
     ).pack(side=tk.LEFT, padx=(0, 12))
+    ttk.Radiobutton(
+        type_frame,
+        text="Type 3",
+        variable=certificate_type_var,
+        value="3",
+        command=on_certificate_type_changed,
+    ).pack(side=tk.LEFT, padx=(0, 12))
+
+    entry_row_frame = ttk.Frame(entries_main)
+    entry_row_frame.pack(fill=tk.X, padx=4, pady=4)
+    entry_row_frame.columnconfigure(0, weight=3)
+    entry_row_frame.columnconfigure(1, weight=2)
+    entry_row_frame.rowconfigure(0, weight=1)
+
+    mark_vars = {key: tk.StringVar(master=root) for key in MARK_KEYS}
+
+    marks_panel_frame = ttk.LabelFrame(
+        entry_row_frame,
+        text="Subject marks (Type 3) * — enter 0 to 100 for each subject",
+        padding=8,
+    )
+    marks_scroll_wrap = ttk.Frame(marks_panel_frame)
+    marks_scroll_wrap.pack(fill=tk.BOTH, expand=True)
+    marks_canvas = tk.Canvas(marks_scroll_wrap, height=180, highlightthickness=0)
+    marks_scrollbar = ttk.Scrollbar(
+        marks_scroll_wrap, orient=tk.VERTICAL, command=marks_canvas.yview
+    )
+    marks_inner = ttk.Frame(marks_canvas)
+    marks_canvas.configure(yscrollcommand=marks_scrollbar.set)
+    marks_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    marks_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    marks_inner.columnconfigure(0, weight=1)
+
+    marks_window_id = marks_canvas.create_window((0, 0), window=marks_inner, anchor=tk.NW)
+
+    def _refresh_marks_scrollregion(_event=None):
+        marks_canvas.update_idletasks()
+        bbox = marks_canvas.bbox("all")
+        if bbox:
+            marks_canvas.configure(scrollregion=bbox)
+
+    def _on_marks_canvas_configure(event):
+        marks_canvas.itemconfigure(marks_window_id, width=event.width)
+
+    def _on_marks_mousewheel(event):
+        if event.delta:
+            marks_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        elif event.num == 4:
+            marks_canvas.yview_scroll(-1, "units")
+        elif event.num == 5:
+            marks_canvas.yview_scroll(1, "units")
+        return "break"
+
+    def _bind_marks_mousewheel_recursive(widget):
+        widget.bind("<MouseWheel>", _on_marks_mousewheel)
+        widget.bind("<Button-4>", _on_marks_mousewheel)
+        widget.bind("<Button-5>", _on_marks_mousewheel)
+        for child in widget.winfo_children():
+            _bind_marks_mousewheel_recursive(child)
+
+    marks_inner.bind("<Configure>", _refresh_marks_scrollregion)
+    marks_canvas.bind("<Configure>", _on_marks_canvas_configure)
+    marks_canvas.bind("<MouseWheel>", _on_marks_mousewheel)
+    marks_scrollbar.bind("<MouseWheel>", _on_marks_mousewheel)
+
+    def _add_mark_rows(section_title, subjects, start_row):
+        ttk.Label(
+            marks_inner,
+            text=section_title,
+            font=("Segoe UI", 9, "bold"),
+            foreground=LEVELUP_COLORS["teal_dark"],
+        ).grid(row=start_row, column=0, columnspan=2, sticky=tk.W, pady=(0, 6))
+        row = start_row + 1
+        for subj in subjects:
+            ttk.Label(
+                marks_inner,
+                text=subj["name"],
+                wraplength=300,
+                justify=tk.LEFT,
+            ).grid(row=row, column=0, sticky=tk.W, padx=(0, 12), pady=3)
+            ttk.Entry(
+                marks_inner, textvariable=mark_vars[subj["key"]], width=8
+            ).grid(row=row, column=1, sticky=tk.E, pady=3)
+            row += 1
+        return row
+
+    theory_subjects = [s for s in MARKSHEET_SUBJECTS if s["section"] == "theory"]
+    practical_subjects = [s for s in MARKSHEET_SUBJECTS if s["section"] == "practical"]
+    next_row = _add_mark_rows("THEORY SUBJECTS", theory_subjects, 0)
+    _add_mark_rows("PRACTICAL SUBJECTS", practical_subjects, next_row + 1)
+    _bind_marks_mousewheel_recursive(marks_inner)
+    root.after_idle(_refresh_marks_scrollregion)
 
     program_title_option_frame = ttk.LabelFrame(
-        tab_entries,
+        entries_main,
         text="Certificate title (Type 2) * — select before Generate & Send",
         padding=8,
     )
@@ -1010,8 +1641,7 @@ def run_gui():
         value="diploma",
     ).pack(anchor=tk.W, pady=2)
 
-    form = ttk.LabelFrame(tab_entries, text="Add entry", padding=8)
-    form.pack(fill=tk.X, padx=4, pady=4)
+    form = ttk.LabelFrame(entry_row_frame, text="Add entry", padding=8)
 
     def _add_field(parent, row, col, label, key, width=18, colspan=1):
         lbl = ttk.Label(parent, text=label)
@@ -1036,11 +1666,11 @@ def run_gui():
     paste_btn = ttk.Button(form, text="Paste rows…")
     paste_btn.grid(row=2, column=7, padx=(0, 0))
 
-    list_frame = ttk.LabelFrame(tab_entries, text="Entries to send", padding=8)
+    list_frame = ttk.LabelFrame(entries_main, text="Entries to send", padding=8)
     list_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
     init_cols = CERTIFICATE_TYPES["1"]["tree_columns"]
-    tree = ttk.Treeview(list_frame, columns=init_cols, show="headings", height=8, selectmode="extended")
+    tree = ttk.Treeview(list_frame, columns=init_cols, show="headings", height=5, selectmode="extended")
     for c in init_cols:
         tree.heading(c, text=c)
         tree.column(c, width=100)
@@ -1061,7 +1691,16 @@ def run_gui():
 
         header_var = tk.BooleanVar(value=False)
 
-        if get_certificate_type() == "2":
+        paste_type = get_certificate_type()
+        if paste_type == "3":
+            help_txt = (
+                "Paste from Google Sheets or Excel (select cells → Copy): columns are TAB-separated.\n"
+                "Or type one person per line. Without a header row, use this order:\n"
+                "Name — Gr.No. — Year — Email — M1 — M2 — … — M10 (TAB-separated from Sheets)\n"
+                "M1–M6 = theory subjects, M7–M10 = practical (each mark 0–100)\n"
+                "Tick “First row is column names” if row 1 has headers like Name, GR No, M1, …"
+            )
+        elif paste_type == "2":
             help_txt = (
                 "Paste from Google Sheets or Excel (select cells → Copy): columns are TAB-separated.\n"
                 "Or type one person per line. Without a header row, use this order:\n"
@@ -1128,11 +1767,24 @@ def run_gui():
             )
             cert_type = get_certificate_type()
             for e in entries_parsed:
-                tree.insert(
-                    "",
-                    tk.END,
-                    values=tree_values_from_entry(e, cert_type),
-                )
+                if cert_type == "3":
+                    try:
+                        for key in MARK_KEYS:
+                            e[key] = str(_parse_mark_value(e.get(key, "")))
+                        totals = calc_marksheet_totals(e)
+                        e["total"] = str(totals["total"])
+                        e["percentage"] = str(totals["percentage"])
+                        e["grade"] = totals["grade"]
+                    except ValueError:
+                        warns.append(f"Skipped {e.get('name', '')!r}: invalid marks.")
+                        continue
+                    insert_tree_row(e, cert_type)
+                else:
+                    tree.insert(
+                        "",
+                        tk.END,
+                        values=tree_values_from_entry(e, cert_type),
+                    )
             parts = [f"Added {len(entries_parsed)} row(s) to the list."]
             if warns:
                 show_warns = warns[:25]
@@ -1161,27 +1813,21 @@ def run_gui():
 
     paste_btn.configure(command=open_paste_rows_dialog)
 
-    btn_frame = ttk.Frame(tab_entries, padding=8)
-    btn_frame.pack(fill=tk.X)
-
     ttk.Button(btn_frame, text="Remove selected", command=remove_selected).pack(side=tk.LEFT, padx=(0, 6))
     ttk.Button(btn_frame, text="Clear list", command=clear_list).pack(side=tk.LEFT, padx=(0, 6))
     ttk.Button(btn_frame, text="Save list...", command=save_list).pack(side=tk.LEFT, padx=(0, 6))
     ttk.Button(btn_frame, text="Load list...", command=load_list).pack(side=tk.LEFT, padx=(0, 6))
-    ttk.Button(btn_frame, text="Generate & Send", command=generate_and_send).pack(side=tk.LEFT, padx=(0, 6))
+    ttk.Button(
+        btn_frame,
+        text="Generate & Send",
+        command=generate_and_send,
+        style="Accent.TButton",
+    ).pack(side=tk.LEFT, padx=(0, 6))
 
     # Only show console toggle when running from Python (not from built exe); exe is built windowed so no console
     if sys.platform == "win32" and not getattr(sys, "frozen", False):
         ttk.Button(btn_frame, text="Hide console", command=lambda: toggle_console(False)).pack(side=tk.LEFT, padx=(0, 6))
         ttk.Button(btn_frame, text="Show console", command=lambda: toggle_console(True)).pack(side=tk.LEFT, padx=(0, 6))
-
-    status_var = tk.StringVar(value="Ready")
-    ttk.Label(tab_entries, textvariable=status_var).pack(anchor=tk.W, padx=8, pady=2)
-
-    log_frame = ttk.LabelFrame(tab_entries, text="Log", padding=4)
-    log_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
-    log_text = tk.Text(log_frame, height=6, wrap=tk.WORD, state=tk.NORMAL)
-    log_text.pack(fill=tk.BOTH, expand=True)
 
     # ---------- Tab 2: History ----------
     tab_history = ttk.Frame(notebook, padding=4)
@@ -1228,6 +1874,8 @@ def run_gui():
             "year",
             "grade",
             "program_title",
+            "total_marks",
+            "percentage",
         )
         search_text = (history_search_var.get() or "").strip().lower()
         if search_text:
@@ -1242,15 +1890,28 @@ def run_gui():
             history_tree.delete(i)
         for r in reversed(records):
             ctype = str(r.get("certificate_type", "1") or "1")
+            if ctype == "1":
+                month_year = r.get("month", "")
+                gr_no = ""
+                grade = ""
+            elif ctype == "3":
+                month_year = r.get("year", "")
+                gr_no = r.get("gr_no", "")
+                grade = r.get("grade", "")
+            else:
+                month_year = r.get("year", "")
+                gr_no = r.get("gr_no", "")
+                grade = r.get("grade", "")
+            course_val = r.get("course", "") if ctype != "3" else "Marksheet"
             history_tree.insert("", tk.END, values=(
                 r.get("sent_at", ""),
                 ctype,
                 r.get("name", ""),
                 r.get("email", ""),
-                r.get("course", ""),
-                r.get("month", "") if ctype == "1" else r.get("year", ""),
-                r.get("gr_no", "") if ctype == "2" else "",
-                r.get("grade", "") if ctype == "2" else "",
+                course_val,
+                month_year,
+                gr_no,
+                grade,
             ))
         if total_count == len(records) and not search_text:
             history_summary_var.set(f"Total certificates sent: {total_count}")
@@ -1304,6 +1965,8 @@ def run_gui():
             "year",
             "grade",
             "program_title",
+            "total_marks",
+            "percentage",
         )
         if search_text:
             def matches(r):
@@ -1346,12 +2009,12 @@ def run_gui():
                     "Type": ctype,
                     "Name": r.get("name", ""),
                     "Email": r.get("email", ""),
-                    "Course": r.get("course", ""),
+                    "Course": r.get("course", "") if ctype != "3" else "Marksheet",
                     "Month/Year": r.get("month", "")
                     if ctype == "1"
                     else r.get("year", ""),
-                    "Gr.No.": r.get("gr_no", "") if ctype == "2" else "",
-                    "Grade": r.get("grade", "") if ctype == "2" else "",
+                    "Gr.No.": r.get("gr_no", "") if ctype in ("2", "3") else "",
+                    "Grade": r.get("grade", "") if ctype in ("2", "3") else "",
                     "Program title": r.get("program_title", "")
                     if ctype == "2"
                     else "",
